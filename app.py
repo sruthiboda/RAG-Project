@@ -128,7 +128,7 @@ def handle_userinput(user_question):
 def main():
     load_dotenv()
 
-    st.set_page_config(page_title="KnowledgeBase.com", page_icon="KB", layout="wide")
+    st.set_page_config(page_title="KnowledgeBase.com", page_icon="📚", layout="wide")
 
     st.markdown(
         """
@@ -204,3 +204,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
