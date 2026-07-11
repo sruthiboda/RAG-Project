@@ -1,97 +1,96 @@
+﻿# MultiDoc-KBSE
 
-## 🚀 Live Demo
+MultiDoc-KBSE is a Streamlit app that lets users upload one or more PDF files and ask questions about their contents. It uses a Retrieval-Augmented Generation pipeline with PDF text extraction, text chunking, Hugging Face embeddings, FAISS vector search, and a Flan-T5 language model.
 
-👉 [Click here to use the app](https://multi-docs-kbse-huzqndko7noyg6zsu6ehpk.streamlit.app/)
+## Live Demo
 
-🚀 AI – Multi-Document Knowledge Base Search Engine
+Use the deployed app here:
 
-AI-powered document assistant that lets you chat with multiple PDFs using Retrieval-Augmented Generation (RAG)
+https://multi-docs-kbse-huzqndko7noyg6zsu6ehpk.streamlit.app/
 
-📌 Overview
+## Features
 
-KnowledgeBase AI is an intelligent document search system that allows users to upload multiple PDF files and ask questions in natural language.
-The system retrieves relevant information from documents and generates accurate, context-aware answers using AI.
+- Chat with multiple PDF documents
+- Extract text from uploaded PDFs
+- Split document text into searchable chunks
+- Create semantic embeddings with `sentence-transformers/all-MiniLM-L6-v2`
+- Store and search vectors with FAISS
+- Generate answers with `google/flan-t5-base`
+- Keep conversational context during a session
+- Handles unreadable/scanned PDFs with clear error messages
 
-This project is built based on the concept of RAG (Retrieval-Augmented Generation) as described in the assignment .
+## How It Works
 
+1. Upload one or more PDF files.
+2. Click **Process**.
+3. The app extracts readable text from each PDF.
+4. Text is split into overlapping chunks.
+5. Chunks are embedded and stored in a FAISS vector index.
+6. A user question is matched with the most relevant chunks.
+7. Flan-T5 generates an answer using the retrieved context.
 
-#How it Works
+## Project Structure
 
-![Image of Assignment](./docs/Knowledgebase_img.png)
+```text
+RAG-Project/
+|-- app.py
+|-- htmlTemplates.py
+|-- requirements.txt
+|-- runtime.txt
+|-- readme.md
+|-- docs/
+|   |-- Knowledgebase_img.png
+|   |-- PDF-LangChain.jpg
+|-- Screenshot 2026-04-02 232711.png
+```
 
-#<video controls src="20260402-1754-32.4092328.mp4" title="Live Demo"></video>
+## Requirements
 
-The application follows these steps to provide responses to your questions:
+Use Python 3.10 for best compatibility with Streamlit Cloud and the pinned ML dependencies.
 
-1. PDF Loading: The app reads multiple PDF documents and extracts their text content.
+## Local Setup
 
-2. Text Chunking: The extracted text is divided into smaller chunks that can be processed effectively.
-
-3. Language Model: The application utilizes a language model to generate vector representations (embeddings) of the text chunks.
-
-4. Similarity Matching: When you ask a question, the app compares it with the text chunks and identifies the most semantically similar ones.
-
-5. Response Generation: The selected chunks are passed to the language model, which generates a response based on the relevant content of the PDFs.
-
-
-🎯 Features
-
-✅ Chat with multiple PDFs
-✅ AI-powered question answering
-✅ Semantic search using embeddings
-✅ No OpenAI billing (uses HuggingFace models)
-✅ Fast retrieval with FAISS
-✅ Clean Streamlit UI
-✅ Context-aware conversation memory
-
-🧠 How It Works (RAG Pipeline)
-PDF Loading
-Extracts text from uploaded PDF documents
-Text Chunking
-Splits text into smaller chunks for efficient processing
-Embeddings Generation
-Converts text into vector representations using HuggingFace models
-Vector Storage (FAISS)
-Stores embeddings for fast similarity search
-User Query Processing
-Finds most relevant chunks using semantic similarity
-Response Generation
-Uses LLM (Flan-T5) to generate contextual answers
-
-🏗️ Tech Stack
-Frontend: Streamlit
-Backend: Python
-LLM: HuggingFace (Flan-T5)
-Embeddings: Sentence Transformers (all-MiniLM-L6-v2)
-Vector DB: FAISS
-Framework: LangChain
-📂 Project Structure
-📦 SmartDoc-AI
- ┣ 📜 app.py
- ┣ 📜 htmlTemplates.py
- ┣ 📜 requirements.txt
- ┣ 📁 docs
- ┣ 📁 data
- ┣ 📁 vectorstore
- ┗ 📜 README.md
-⚙️ Installation
-1️⃣ Clone Repository
-
-cd smartdoc-ai
-2️⃣ Create Virtual Environment
+```bash
+git clone https://github.com/sruthiboda/RAG-Project.git
+cd RAG-Project
 python -m venv venv
-venv\Scripts\activate   # Windows
-3️⃣ Install Dependencies
-pip install -r requirements.txt
-▶️ Run the Application
-streamlit run app.py
-🖥️ Usage
-Upload one or more PDF documents
-Click Process
-Ask questions like:
-"Summarize the document"
-"What are key findings?"
-"Explain in simple terms"
-Get AI-generated answers instantly
-🎨 UI Preview
+```
 
+Activate the virtual environment:
+
+```bash
+# Windows
+venv\Scripts\activate
+
+# macOS/Linux
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Run the app:
+
+```bash
+streamlit run app.py
+```
+
+## Usage
+
+1. Open the Streamlit app in your browser.
+2. Upload one or more text-based PDF files.
+3. Click **Process**.
+4. Ask questions such as:
+   - Summarize the document.
+   - What are the key findings?
+   - Explain this in simple terms.
+
+## Notes
+
+- Scanned image-only PDFs usually do not contain extractable text. Run OCR first if the app says no readable text was found.
+- The first run can be slow because Hugging Face models need to download and load.
+- The app uses open-source Hugging Face models, so no OpenAI API key is required.

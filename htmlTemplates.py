@@ -1,8 +1,8 @@
-css = '''
+﻿css = '''
 <style>
 .chat-message {
     padding: 1rem;
-    border-radius: 10px;
+    border-radius: 8px;
     margin-bottom: 10px;
     display: flex;
 }
@@ -17,23 +17,23 @@ css = '''
 .chat-message .message {
     max-width: 80%;
     padding: 10px 15px;
-    border-radius: 10px;
-    color: #fff;
+    border-radius: 8px;
+    color: #ffffff;
     font-size: 14px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 </style>
-
 '''
 
 bot_template = '''
 <div class="chat-message bot">
-    <div class="message">🤖 {{MSG}}</div>
+    <div class="message"><strong>Bot:</strong> {{MSG}}</div>
 </div>
-
 '''
 
 user_template = '''
 <div class="chat-message user">
-    <div class="message">👤 {{MSG}}</div>
+    <div class="message"><strong>You:</strong> {{MSG}}</div>
 </div>
 '''
