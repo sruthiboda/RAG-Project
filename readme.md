@@ -1,13 +1,13 @@
-﻿# MultiDoc-KBSE
+# MultiDoc-KBSE
 
 MultiDoc-KBSE is a Streamlit PDF question-answering app. It extracts text from uploaded PDFs, uses OCR for scanned/image pages, retrieves the most relevant page chunks, and answers with source page references.
 
 ## Best Accuracy Mode
 
-For the most accurate answers, add an OpenAI key in Streamlit Cloud secrets:
+For the most accurate answers, add an Google Gemini key in Streamlit Cloud secrets:
 
 ```toml
-OPENAI_API_KEY = "your_api_key_here"
+GOOGLE_API_KEY = "your_gemini_api_key_here"
 ```
 
 If no key is provided, the app still works with a free local extractive QA fallback, but complex reasoning and messy PDFs will be less reliable.
@@ -32,7 +32,7 @@ If no key is provided, the app still works with a free local extractive QA fallb
 - pytesseract + Tesseract OCR
 - Sentence Transformers
 - Transformers extractive QA fallback
-- Optional OpenAI answer generation
+- Optional Gemini answer generation
 
 ## Local Setup
 

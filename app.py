@@ -11,7 +11,7 @@ import pdfplumber
 import pytesseract
 import streamlit as st
 from dotenv import load_dotenv
-from openai import OpenAI
+import google.generativeai as genai
 from PIL import Image
 from pytesseract import TesseractNotFoundError
 from sentence_transformers import SentenceTransformer
@@ -26,7 +26,7 @@ except ImportError:
 APP_TITLE = "MultiDoc-KBSE"
 EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
 QA_MODEL = "deepset/minilm-uncased-squad2"
-OPENAI_MODEL = "gpt-4o-mini"
+GEMINI_MODEL = "gemini-1.5-flash"
 MIN_PAGE_TEXT_CHARS = 80
 MIN_DOC_TEXT_CHARS = 250
 CHUNK_SIZE = 1400
@@ -194,19 +194,20 @@ def load_qa_model():
     return pipeline("question-answering", model=QA_MODEL, tokenizer=QA_MODEL)
 
 
-def get_openai_api_key():
+def get_google_api_key():
     try:
-        key = st.secrets.get("OPENAI_API_KEY")
+        key = st.secrets.get("GOOGLE_API_KEY")
         if key:
             return key
     except Exception:
         pass
-    return os.getenv("OPENAI_API_KEY")
+    return os.getenv("GOOGLE_API_KEY")
 
 
 @st.cache_resource(show_spinner=False)
-def load_openai_client(api_key: str):
-    return OpenAI(api_key=api_key)
+def load_gemini_model(api_key: str):
+    genai.configure(api_key=api_key)
+    return genai.GenerativeModel(os.getenv("GEMINI_MODEL", GEMINI_MODEL))
 
 
 # -------- KNOWLEDGE BASE --------
@@ -343,12 +344,12 @@ def cite_sources(contexts: list[dict]) -> str:
     return "; ".join(seen)
 
 
-def answer_with_openai(question: str, contexts: list[dict]):
-    api_key = get_openai_api_key()
+def answer_with_gemini(question: str, contexts: list[dict]):
+    api_key = get_google_api_key()
     if not api_key:
         return None
 
-    client = load_openai_client(api_key)
+    model = load_gemini_model(api_key)
     prompt = f"""You are a careful PDF question-answering assistant.
 Answer using only the provided PDF context.
 If the user asks for a summary or what the PDF is about, summarize the main content from the context.
@@ -361,12 +362,11 @@ PDF context:
 
 Question: {question}
 """
-    response = client.chat.completions.create(
-        model=os.getenv("OPENAI_MODEL", OPENAI_MODEL),
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
+    response = model.generate_content(
+        prompt,
+        generation_config={"temperature": 0, "max_output_tokens": 700},
     )
-    return response.choices[0].message.content.strip()
+    return (response.text or "").strip()
 
 
 def answer_with_extractive_qa(question: str, contexts: list[dict]):
@@ -397,7 +397,7 @@ def summarize_documents(contexts: list[dict], full_text: str):
             {"source": "uploaded PDFs", "page": "mixed", "method": "text", "text": full_text[:7000]}
         ]
 
-    api_answer = answer_with_openai("What is this PDF about? Give a clear summary of the uploaded document.", summary_contexts)
+    api_answer = answer_with_gemini("What is this PDF about? Give a clear summary of the uploaded document.", summary_contexts)
     if api_answer:
         return api_answer
 
@@ -439,11 +439,11 @@ def answer_question(question: str, knowledge_base: dict, full_text: str):
         return summarize_documents(expanded_contexts, full_text)
 
     try:
-        api_answer = answer_with_openai(question, expanded_contexts)
+        api_answer = answer_with_gemini(question, expanded_contexts)
         if api_answer:
             return api_answer
     except Exception as exc:
-        st.warning(f"OpenAI answer failed, using local fallback: {exc}")
+        st.warning(f"Gemini answer failed, using local fallback: {exc}")
 
     if not contexts:
         return NOT_FOUND
@@ -553,8 +553,8 @@ def main():
             st.session_state.raw_text = ""
             st.success("Chat cleared.")
 
-        if get_openai_api_key():
-            st.caption("Answer mode: OpenAI + retrieval")
+        if get_google_api_key():
+            st.caption("Answer mode: Gemini + retrieval")
         else:
             st.caption("Answer mode: free local fallback")
 
