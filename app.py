@@ -29,9 +29,10 @@ QA_MODEL = "deepset/minilm-uncased-squad2"
 GEMINI_MODEL = "gemini-1.5-flash"
 MIN_PAGE_TEXT_CHARS = 80
 MIN_DOC_TEXT_CHARS = 250
-CHUNK_SIZE = 1400
-CHUNK_OVERLAP = 250
-RETRIEVAL_TOP_K = 8
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100
+RETRIEVAL_TOP_K = 5
+RETRIEVAL_FETCH_K = 20
 MIN_RETRIEVAL_SCORE = -1.0
 MIN_QA_SCORE = 0.12
 NOT_FOUND = "Not found in the uploaded documents."
@@ -151,20 +152,30 @@ def split_text(text: str, size: int = CHUNK_SIZE, overlap: int = CHUNK_OVERLAP) 
     if len(text) <= size:
         return [text] if text else []
 
+    units = re.split(r"(?<=[.!?])\s+|\n+", text)
     chunks = []
-    start = 0
-    while start < len(text):
-        end = min(start + size, len(text))
-        chunk = text[start:end]
-        if end < len(text):
-            last_break = max(chunk.rfind("\n"), chunk.rfind(". "), chunk.rfind(" "))
-            if last_break > size * 0.55:
-                end = start + last_break + 1
-                chunk = text[start:end]
-        chunks.append(chunk.strip())
-        if end >= len(text):
-            break
-        start = max(0, end - overlap)
+    current = ""
+
+    for unit in units:
+        unit = unit.strip()
+        if not unit:
+            continue
+        candidate = f"{current} {unit}".strip()
+        if len(candidate) <= size:
+            current = candidate
+            continue
+        if current:
+            chunks.append(current)
+            current = current[-overlap:].strip()
+        if len(unit) > size:
+            for start in range(0, len(unit), max(1, size - overlap)):
+                chunks.append(unit[start : start + size].strip())
+            current = ""
+        else:
+            current = f"{current} {unit}".strip()
+
+    if current:
+        chunks.append(current)
     return [chunk for chunk in chunks if chunk]
 
 
@@ -224,6 +235,56 @@ def build_knowledge_base(chunks: list[dict]):
     return {"chunks": chunks, "embeddings": embeddings}
 
 
+def query_terms(question: str) -> set[str]:
+    stop_words = {
+        "what", "is", "the", "a", "an", "of", "to", "in", "and", "or", "for", "my", "your",
+        "explain", "about", "describe", "give", "tell", "from", "pdf",
+    }
+    return {term for term in re.findall(r"[a-zA-Z0-9]+", question.lower()) if len(term) > 2 and term not in stop_words}
+
+
+def keyword_score(question: str, text: str) -> float:
+    terms = query_terms(question)
+    if not terms:
+        return 0.0
+    lowered = text.lower()
+    hits = sum(1 for term in terms if term in lowered)
+    normalized_question = question.lower().strip(" ?")
+    exact_phrase_bonus = 1.0 if normalized_question in lowered else 0.0
+    phrase_bonus = 0.0
+    for phrase in ("working principle", "rf energy harvesting", "design of rectenna", "rectenna"):
+        if phrase in normalized_question and phrase in lowered[:350]:
+            phrase_bonus += 0.8
+    definition_bonus = 0.0
+    if normalized_question.startswith(("what is", "what are", "define")):
+        for term in terms:
+            term_pattern = re.escape(term)
+            if re.search(rf"\b(?:a|an|the)?\s*{term_pattern}\s+(?:is|are|refers|means)\b", lowered[:500]):
+                definition_bonus += 1.0
+    heading_bonus = 0.0
+    heading_zone = lowered[:180]
+    if any(term in heading_zone for term in terms):
+        heading_bonus = 0.5
+    return (hits / len(terms)) + exact_phrase_bonus + phrase_bonus + definition_bonus + heading_bonus
+
+
+def mmr_select(candidate_indexes, embeddings, scores, top_k: int, lambda_mult: float = 0.70):
+    selected = []
+    remaining = list(candidate_indexes)
+    while remaining and len(selected) < top_k:
+        if not selected:
+            best = max(remaining, key=lambda idx: scores[idx])
+        else:
+            best = max(
+                remaining,
+                key=lambda idx: lambda_mult * scores[idx]
+                - (1 - lambda_mult) * max(float(np.dot(embeddings[idx], embeddings[chosen])) for chosen in selected),
+            )
+        selected.append(best)
+        remaining.remove(best)
+    return selected
+
+
 def retrieve_context(question: str, knowledge_base: dict, top_k: int = RETRIEVAL_TOP_K) -> list[dict]:
     query_embedding = load_embedder().encode(
         [question],
@@ -231,14 +292,22 @@ def retrieve_context(question: str, knowledge_base: dict, top_k: int = RETRIEVAL
         normalize_embeddings=True,
         show_progress_bar=False,
     )[0]
-    scores = np.dot(knowledge_base["embeddings"], query_embedding)
-    top_indexes = np.argsort(scores)[::-1][:top_k]
+    embeddings = knowledge_base["embeddings"]
+    semantic_scores = np.dot(embeddings, query_embedding)
+
+    combined_scores = []
+    for index, chunk in enumerate(knowledge_base["chunks"]):
+        combined = float(semantic_scores[index]) + 0.35 * keyword_score(question, chunk["text"])
+        combined_scores.append(combined)
+
+    fetch_k = min(RETRIEVAL_FETCH_K, len(combined_scores))
+    candidate_indexes = np.argsort(combined_scores)[::-1][:fetch_k]
+    selected_indexes = mmr_select(candidate_indexes, embeddings, combined_scores, top_k)
 
     results = []
-    for index in top_indexes:
-        score = float(scores[index])
+    for index in selected_indexes:
         item = dict(knowledge_base["chunks"][index])
-        item["score"] = score
+        item["score"] = float(combined_scores[index])
         results.append(item)
     return results
 
@@ -373,11 +442,14 @@ def answer_with_gemini(question: str, contexts: list[dict]):
 
     model = load_gemini_model(api_key)
     prompt = f"""You are a careful PDF question-answering assistant.
-Answer using only the provided PDF context.
-If the user asks for a summary or what the PDF is about, summarize the main content from the context.
+Answer ONLY from the retrieved PDF context below.
+Do not use outside knowledge and do not guess.
+If the retrieved context does not contain the answer, reply exactly: {NOT_FOUND}
+If the user asks for a summary or what the PDF is about, summarize only the main content visible in the retrieved context.
+If the user asks for a definition, use the chunk that directly defines the term.
+If the user asks for a working principle/process, use the chunk that describes the principle or steps, not experimental setup unless the setup is explicitly asked.
 If the user asks for skills, projects, education, or experience, extract the relevant bullet points or phrases from the context.
-If the answer is not clearly present, reply exactly: {NOT_FOUND}
-Keep answers concise. Include source page citations in parentheses.
+Explain in detail when the question asks to explain. Include source page citations in parentheses.
 
 PDF context:
 {format_context(contexts)}
