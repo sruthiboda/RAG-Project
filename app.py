@@ -26,7 +26,7 @@ except ImportError:
 APP_TITLE = "MultiDoc-KBSE"
 EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
 QA_MODEL = "deepset/minilm-uncased-squad2"
-GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro")
 MIN_PAGE_TEXT_CHARS = 80
 MIN_DOC_TEXT_CHARS = 250
 CHUNK_SIZE = 500
@@ -215,10 +215,35 @@ def get_google_api_key():
     return os.getenv("GOOGLE_API_KEY")
 
 
+def get_gemini_model_names(api_key: str) -> list[str]:
+    configured = ""
+    try:
+        configured = st.secrets.get("GEMINI_MODEL", "")
+    except Exception:
+        pass
+    configured = os.getenv("GEMINI_MODEL", configured)
+
+    model_names = []
+    if configured:
+        model_names.extend(name.strip() for name in configured.split(",") if name.strip())
+
+    try:
+        genai.configure(api_key=api_key)
+        for model in genai.list_models():
+            methods = getattr(model, "supported_generation_methods", []) or []
+            if "generateContent" in methods and "gemini" in model.name.lower():
+                model_names.append(model.name)
+    except Exception:
+        pass
+
+    model_names.extend(DEFAULT_GEMINI_MODELS)
+    return list(dict.fromkeys(model_names))
+
+
 @st.cache_resource(show_spinner=False)
-def load_gemini_model(api_key: str):
+def load_gemini_model(api_key: str, model_name: str):
     genai.configure(api_key=api_key)
-    return genai.GenerativeModel(os.getenv("GEMINI_MODEL", GEMINI_MODEL))
+    return genai.GenerativeModel(model_name)
 
 
 # -------- KNOWLEDGE BASE --------
@@ -440,7 +465,6 @@ def answer_with_gemini(question: str, contexts: list[dict]):
     if not api_key:
         return None
 
-    model = load_gemini_model(api_key)
     prompt = f"""You are a careful PDF question-answering assistant.
 Answer ONLY from the retrieved PDF context below.
 Do not use outside knowledge and do not guess.
@@ -456,11 +480,21 @@ PDF context:
 
 Question: {question}
 """
-    response = model.generate_content(
-        prompt,
-        generation_config={"temperature": 0, "max_output_tokens": 700},
-    )
-    return (response.text or "").strip()
+    last_error = None
+    for model_name in get_gemini_model_names(api_key):
+        try:
+            model = load_gemini_model(api_key, model_name)
+            response = model.generate_content(
+                prompt,
+                generation_config={"temperature": 0, "max_output_tokens": 700},
+            )
+            return (response.text or "").strip()
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    st.warning(f"Gemini is unavailable for the configured API key/model, using local fallback: {last_error}")
+    return None
 
 
 def answer_with_extractive_qa(question: str, contexts: list[dict]):
