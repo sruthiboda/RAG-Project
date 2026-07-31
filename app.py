@@ -1,4 +1,4 @@
-﻿import html
+import html
 import os
 import re
 from dataclasses import dataclass
@@ -32,7 +32,7 @@ MIN_DOC_TEXT_CHARS = 250
 CHUNK_SIZE = 1400
 CHUNK_OVERLAP = 250
 RETRIEVAL_TOP_K = 8
-MIN_RETRIEVAL_SCORE = 0.10
+MIN_RETRIEVAL_SCORE = 0.05
 MIN_QA_SCORE = 0.12
 NOT_FOUND = "Not found in the uploaded documents."
 
@@ -371,16 +371,40 @@ def answer_with_extractive_qa(question: str, contexts: list[dict]):
 
 
 def summarize_documents(contexts: list[dict], full_text: str):
-    api_answer = answer_with_openai("Give a clear summary of the uploaded PDF documents.", contexts)
+    summary_contexts = contexts
+    if not summary_contexts:
+        summary_contexts = [
+            {"source": "uploaded PDFs", "page": "mixed", "method": "text", "text": full_text[:7000]}
+        ]
+
+    api_answer = answer_with_openai("What is this PDF about? Give a clear summary of the uploaded document.", summary_contexts)
     if api_answer:
         return api_answer
 
-    text = full_text[:3500]
+    text = full_text[:4500]
     sentences = re.split(r"(?<=[.!?])\s+|\n+", text)
-    summary_lines = [clean_value(sentence) for sentence in sentences if len(clean_value(sentence)) > 50][:8]
+    summary_lines = [clean_value(sentence) for sentence in sentences if len(clean_value(sentence)) > 45][:8]
     if not summary_lines:
         return NOT_FOUND
     return "Summary:\n- " + "\n- ".join(summary_lines)
+
+
+def is_summary_question(question: str) -> bool:
+    q = question.lower().strip()
+    summary_phrases = [
+        "summary",
+        "summarize",
+        "summarise",
+        "overview",
+        "what is this pdf about",
+        "what the pdf is about",
+        "what is the pdf about",
+        "what is document about",
+        "explain about",
+        "explain the pdf",
+        "describe the pdf",
+    ]
+    return any(phrase in q for phrase in summary_phrases)
 
 
 def answer_question(question: str, knowledge_base: dict, full_text: str):
@@ -389,11 +413,12 @@ def answer_question(question: str, knowledge_base: dict, full_text: str):
         return direct_answer
 
     contexts = retrieve_context(question, knowledge_base)
+
+    if is_summary_question(question):
+        return summarize_documents(contexts, full_text)
+
     if not contexts:
         return NOT_FOUND
-
-    if any(word in question.lower() for word in ["summary", "summarize", "summarise", "overview"]):
-        return summarize_documents(contexts, full_text)
 
     try:
         api_answer = answer_with_openai(question, contexts)
