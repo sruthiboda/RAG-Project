@@ -279,6 +279,28 @@ def first_match(patterns: Iterable[str], text: str):
     return None
 
 
+def uploaded_file_names(full_text: str) -> list[str]:
+    names = re.findall(r"Source file:\s*([^\n]+)", full_text)
+    unique_names = []
+    for name in names:
+        name = name.strip()
+        if name and name not in unique_names:
+            unique_names.append(name)
+    return unique_names
+
+
+def helpful_not_found(question: str, full_text: str) -> str:
+    files = uploaded_file_names(full_text)
+    checked = f" I checked: {', '.join(files)}." if files else ""
+    q = question.lower()
+    if any(word in q for word in ["father", "mother", "registration", "roll", "application number", "exam centre", "exam center"]):
+        return (
+            f"{NOT_FOUND}{checked} This looks like a personal/application field, so upload the actual "
+            "application form, admit card, or scorecard that contains that field. A job notification or resume usually will not contain it."
+        )
+    return f"{NOT_FOUND}{checked}"
+
+
 def answer_common_field(question: str, full_text: str):
     normalized_question = question.lower()
     compact_text = re.sub(r"\s+", " ", full_text)
@@ -321,7 +343,7 @@ def answer_common_field(question: str, full_text: str):
 
     for field, keywords in aliases.items():
         if any(keyword in normalized_question for keyword in keywords):
-            return first_match(field_patterns[field], compact_text) or NOT_FOUND
+            return first_match(field_patterns[field], compact_text) or helpful_not_found(question, full_text)
     return None
 
 
@@ -446,11 +468,12 @@ def answer_question(question: str, knowledge_base: dict, full_text: str):
         st.warning(f"Gemini answer failed, using local fallback: {exc}")
 
     if not contexts:
-        return NOT_FOUND
+        return helpful_not_found(question, full_text)
 
     answer = answer_with_extractive_qa(question, contexts)
     if answer == NOT_FOUND:
-        return f"{NOT_FOUND} Closest source pages checked: {cite_sources(contexts)}"
+        base_message = helpful_not_found(question, full_text)
+        return f"{base_message} Closest source pages checked: {cite_sources(contexts)}"
     return answer
 
 
