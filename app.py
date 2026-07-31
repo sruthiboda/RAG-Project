@@ -32,7 +32,7 @@ MIN_DOC_TEXT_CHARS = 250
 CHUNK_SIZE = 1400
 CHUNK_OVERLAP = 250
 RETRIEVAL_TOP_K = 8
-MIN_RETRIEVAL_SCORE = 0.05
+MIN_RETRIEVAL_SCORE = -1.0
 MIN_QA_SCORE = 0.12
 NOT_FOUND = "Not found in the uploaded documents."
 
@@ -236,11 +236,29 @@ def retrieve_context(question: str, knowledge_base: dict, top_k: int = RETRIEVAL
     results = []
     for index in top_indexes:
         score = float(scores[index])
-        if score >= MIN_RETRIEVAL_SCORE:
-            item = dict(knowledge_base["chunks"][index])
-            item["score"] = score
-            results.append(item)
+        item = dict(knowledge_base["chunks"][index])
+        item["score"] = score
+        results.append(item)
     return results
+
+
+def broaden_context(question: str, knowledge_base: dict, retrieved_contexts: list[dict]) -> list[dict]:
+    chunks = knowledge_base["chunks"]
+    if len(chunks) <= 12:
+        return chunks
+
+    q = question.lower()
+    if any(word in q for word in ["summary", "summarize", "summarise", "overview", "about", "skills", "projects", "experience"]):
+        selected = []
+        seen = set()
+        for context in retrieved_contexts + chunks[:4]:
+            key = (context["source"], context["page"], context["text"][:80])
+            if key not in seen:
+                selected.append(context)
+                seen.add(key)
+        return selected[:12]
+
+    return retrieved_contexts
 
 
 # -------- DIRECT FIELD ANSWERS --------
@@ -333,6 +351,8 @@ def answer_with_openai(question: str, contexts: list[dict]):
     client = load_openai_client(api_key)
     prompt = f"""You are a careful PDF question-answering assistant.
 Answer using only the provided PDF context.
+If the user asks for a summary or what the PDF is about, summarize the main content from the context.
+If the user asks for skills, projects, education, or experience, extract the relevant bullet points or phrases from the context.
 If the answer is not clearly present, reply exactly: {NOT_FOUND}
 Keep answers concise. Include source page citations in parentheses.
 
@@ -413,19 +433,20 @@ def answer_question(question: str, knowledge_base: dict, full_text: str):
         return direct_answer
 
     contexts = retrieve_context(question, knowledge_base)
+    expanded_contexts = broaden_context(question, knowledge_base, contexts)
 
     if is_summary_question(question):
-        return summarize_documents(contexts, full_text)
-
-    if not contexts:
-        return NOT_FOUND
+        return summarize_documents(expanded_contexts, full_text)
 
     try:
-        api_answer = answer_with_openai(question, contexts)
+        api_answer = answer_with_openai(question, expanded_contexts)
         if api_answer:
             return api_answer
     except Exception as exc:
         st.warning(f"OpenAI answer failed, using local fallback: {exc}")
+
+    if not contexts:
+        return NOT_FOUND
 
     answer = answer_with_extractive_qa(question, contexts)
     if answer == NOT_FOUND:
