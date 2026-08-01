@@ -26,7 +26,7 @@ except ImportError:
 APP_TITLE = "MultiDoc-KBSE"
 EMBEDDING_MODEL = "sentence-transformers/all-mpnet-base-v2"
 QA_MODEL = "deepset/minilm-uncased-squad2"
-DEFAULT_GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro")
+DEFAULT_GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash-latest")
 MIN_PAGE_TEXT_CHARS = 80
 MIN_DOC_TEXT_CHARS = 250
 CHUNK_SIZE = 500
@@ -493,7 +493,6 @@ Question: {question}
             last_error = exc
             continue
 
-    st.warning(f"Gemini is unavailable for the configured API key/model, using local fallback: {last_error}")
     return None
 
 
@@ -570,8 +569,8 @@ def answer_question(question: str, knowledge_base: dict, full_text: str):
         api_answer = answer_with_gemini(question, expanded_contexts)
         if api_answer:
             return api_answer
-    except Exception as exc:
-        st.warning(f"Gemini answer failed, using local fallback: {exc}")
+    except Exception:
+        pass
 
     if not contexts:
         return helpful_not_found(question, full_text)
