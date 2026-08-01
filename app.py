@@ -473,7 +473,7 @@ If the user asks for a summary or what the PDF is about, summarize only the main
 If the user asks for a definition, use the chunk that directly defines the term.
 If the user asks for a working principle/process, use the chunk that describes the principle or steps, not experimental setup unless the setup is explicitly asked.
 If the user asks for skills, projects, education, or experience, extract the relevant bullet points or phrases from the context.
-Explain in detail when the question asks to explain. Include source page citations in parentheses.
+Give a complete, useful answer with specific details from the PDF. For explanation questions, use 2-4 short paragraphs or clear bullet points. For project, education, skills, experience, design, workflow, architecture, or methodology questions, include all relevant details found in the context. Include source page citations in parentheses.
 
 PDF context:
 {format_context(contexts)}
@@ -486,7 +486,7 @@ Question: {question}
             model = load_gemini_model(api_key, model_name)
             response = model.generate_content(
                 prompt,
-                generation_config={"temperature": 0, "max_output_tokens": 700},
+                generation_config={"temperature": 0, "max_output_tokens": 1400},
             )
             return (response.text or "").strip()
         except Exception as exc:
@@ -516,6 +516,47 @@ def answer_with_extractive_qa(question: str, contexts: list[dict]):
 
     return f"{best_answer} ({best_context['source']} p.{best_context['page']})"
 
+
+def detailed_local_answer(question: str, contexts: list[dict]):
+    if not contexts:
+        return NOT_FOUND
+
+    terms = query_terms(question)
+    selected_sentences = []
+    seen_sentences = set()
+
+    for context in contexts[:RETRIEVAL_TOP_K]:
+        sentences = re.split(r"(?<=[.!?])\s+|\n+", context["text"])
+        ranked = []
+        for sentence in sentences:
+            cleaned = clean_value(sentence)
+            if len(cleaned) < 35:
+                continue
+            lowered = cleaned.lower()
+            score = sum(1 for term in terms if term in lowered)
+            if not terms or score > 0 or len(selected_sentences) < 3:
+                ranked.append((score, cleaned, context))
+
+        ranked.sort(key=lambda item: item[0], reverse=True)
+        for _, cleaned, source_context in ranked[:3]:
+            key = cleaned.lower()
+            if key in seen_sentences:
+                continue
+            seen_sentences.add(key)
+            selected_sentences.append((cleaned, source_context))
+            if len(selected_sentences) >= 8:
+                break
+        if len(selected_sentences) >= 8:
+            break
+
+    if not selected_sentences:
+        return NOT_FOUND
+
+    lines = ["Based on the uploaded PDF, here are the relevant details:"]
+    for sentence, source_context in selected_sentences:
+        lines.append(f"- {sentence} ({source_context['source']} p.{source_context['page']})")
+    lines.append(f"\nSources checked: {cite_sources(contexts)}")
+    return "\n".join(lines)
 
 def summarize_documents(contexts: list[dict], full_text: str):
     summary_contexts = contexts
@@ -575,6 +616,10 @@ def answer_question(question: str, knowledge_base: dict, full_text: str):
     if not contexts:
         return helpful_not_found(question, full_text)
 
+    detailed_answer = detailed_local_answer(question, expanded_contexts)
+    if detailed_answer != NOT_FOUND:
+        return detailed_answer
+
     answer = answer_with_extractive_qa(question, contexts)
     if answer == NOT_FOUND:
         base_message = helpful_not_found(question, full_text)
@@ -621,6 +666,9 @@ def main():
         .main-title { text-align: center; margin-bottom: 0.25rem; }
         .main-subtitle { text-align: center; margin-bottom: 2rem; color: #9aa4b2; }
         .stButton > button { width: 100%; }
+        .main .block-container { padding-bottom: 7rem; }
+        div[data-testid="stChatInput"] { background: #0e1117; }
+        div[data-testid="stChatInput"] textarea { min-height: 3rem; }
         </style>
         """,
         unsafe_allow_html=True,
@@ -686,7 +734,7 @@ def main():
         else:
             st.caption("Answer mode: free local fallback")
 
-    user_question = st.text_input("Ask a question:")
+    user_question = st.chat_input("Ask a question about your PDFs...")
     if user_question:
         handle_userinput(user_question)
 
